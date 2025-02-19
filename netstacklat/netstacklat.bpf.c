@@ -88,44 +88,40 @@ static void *hook_to_histmap(enum netstacklat_hook hook)
 	}
 }
 
-static void record_current_netstacklat(struct sk_buff *skb,
-				       enum netstacklat_hook hook)
+static void record_latency_since(ktime_t tstamp, enum netstacklat_hook hook)
 {
-	ktime_t delta_ns, skb_tstamp;
 	struct hist_key key = { 0 };
+	ktime_t delta, now;
 
-	if (!skb)
+	if (tstamp <= 0)
 		return;
 
-	skb_tstamp = BPF_CORE_READ(skb, tstamp);
-	if (skb_tstamp == 0)
+	now = bpf_ktime_get_tai_ns() - TAI_OFFSET;
+	if (tstamp  > now)
 		return;
 
-	delta_ns = bpf_ktime_get_tai_ns() - TAI_OFFSET - skb_tstamp;
-	if (delta_ns < 0)
-		return;
-
-	increment_exp2_histogram_nosync(hook_to_histmap(hook), key, delta_ns,
+	delta = now - tstamp;
+	increment_exp2_histogram_nosync(hook_to_histmap(hook), key, delta,
 					HIST_MAX_LATENCY_SLOT);
 }
 
 SEC("fentry/tcp_v4_do_rcv")
 int BPF_PROG(netstacklat_tcp_v4_do_rcv, struct sock *sk, struct sk_buff *skb)
 {
-	record_current_netstacklat(skb, NETSTACKLAT_HOOK_TCP_V4_DO_RCV);
+	record_latency_since(skb->tstamp, NETSTACKLAT_HOOK_TCP_V4_DO_RCV);
 	return 0;
 }
 
 SEC("fentry/tcp_data_queue")
 int BPF_PROG(netstacklat_tcp_data_queue, struct sock *sk, struct sk_buff *skb)
 {
-	record_current_netstacklat(skb, NETSTACKLAT_HOOK_TCP_DATA_QUEUE);
+	record_latency_since(skb->tstamp, NETSTACKLAT_HOOK_TCP_DATA_QUEUE);
 	return 0;
 }
 
 SEC("fentry/udp_queue_rcv_one_skb")
 int BPF_PROG(netstacklat_udp_queue_rcv, struct sock *sk, struct sk_buff *skb)
 {
-	record_current_netstacklat(skb, NETSTACKLAT_HOOK_UDP_QUEUE_RCV_ONE);
+	record_latency_since(skb->tstamp, NETSTACKLAT_HOOK_UDP_QUEUE_RCV_ONE);
 	return 0;
 }
