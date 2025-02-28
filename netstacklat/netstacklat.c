@@ -25,6 +25,7 @@ static const char *__doc__ =
 #include "netstacklat.bpf.skel.h"
 
 struct netstacklat_config {
+	struct netstacklat_bpf_config bpf_conf;
 	double report_interval_s;
 };
 
@@ -49,8 +50,11 @@ struct netstacklat_config {
 #define MAX_BAR_STRLEN (80 - 6 - MAX_BINSPAN_STRLEN - MAX_BINCOUNT_STRLEN)
 
 static const struct option long_options[] = {
-	{ "help",            no_argument,       NULL, 'h' },
-	{ "report-interval", required_argument, NULL, 'r' },
+	{ "help",                    no_argument,       NULL, 'h' },
+	{ "report-interval",         required_argument, NULL, 'r' },
+	{ "standing-queue-target",   required_argument, NULL, 't' },
+	{ "standing-queue-interval", required_argument, NULL, 'i' },
+	{ "standing-queue-noempty",  no_argument,       NULL, 'n' },
 	{ 0, 0, 0, 0 }
 };
 
@@ -165,6 +169,23 @@ int parse_arguments(int argc, char *argv[], struct netstacklat_config *conf)
 
 			conf->report_interval_s = fval;
 			break;
+		case 't':
+			err = parse_bounded_double(&fval, optarg, 0.001, 10000, optval_to_longopt(opt)->name);
+			if (err)
+				return err;
+
+			conf->bpf_conf.target = fval * NS_PER_MS;
+			break;
+		case 'i':
+			err = parse_bounded_double(&fval, optarg, 0.001, 10000, optval_to_longopt(opt)->name);
+			if (err)
+				return err;
+
+			conf->bpf_conf.interval = fval * NS_PER_MS;
+			break;
+		case 'n':
+			conf->bpf_conf.persist_through_empty = true;
+			break;
 		case 'h': // help
 			print_usage(stdout, argv[0]);
 			exit(EXIT_SUCCESS);
@@ -197,6 +218,8 @@ static const char *hook_to_str(enum netstacklat_hook hook)
 		return "tcp-sock-read";
 	case NETSTACKLAT_HOOK_UDP_SOCK_READ:
 		return "udp-sock-read";
+	case NETSTACKLAT_HOOK_SOCK_STANDINGQUEUE:
+		return "socket-standing-queue";
 	default:
 		return "invalid";
 	}
@@ -229,6 +252,9 @@ static int hook_to_histmap(enum netstacklat_hook hook,
 	case NETSTACKLAT_HOOK_UDP_SOCK_READ:
 		return bpf_map__fd(
 			obj->maps.netstack_latency_udp_sock_read_seconds);
+	case NETSTACKLAT_HOOK_SOCK_STANDINGQUEUE:
+		return bpf_map__fd(
+			obj->maps.netstack_sock_standingqueue_seconds);
 	default:
 		return -EINVAL;
 	}
@@ -650,6 +676,11 @@ static int poll_events(int epoll_fd, const struct netstacklat_bpf *obj)
 int main(int argc, char *argv[])
 {
 	struct netstacklat_config config = {
+		.bpf_conf = {
+			.interval = 10 * NS_PER_MS,
+			.target = 1 * NS_PER_MS,
+			.persist_through_empty = false,
+		},
 		.report_interval_s = 5,
 	};
 	int sig_fd, timer_fd, epoll_fd, sock_fd, err;
@@ -681,6 +712,7 @@ int main(int argc, char *argv[])
 	}
 
 	obj->rodata->TAI_OFFSET = (signed long long)get_tai_offset() * NS_PER_S;
+	obj->rodata->user_config = config.bpf_conf;
 
 	err = netstacklat_bpf__load(obj);
 	if (err) {
