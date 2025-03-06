@@ -473,6 +473,7 @@ static int report_stats(const struct netstacklat_bpf *obj)
 		print_log2hist(stdout, ARRAY_SIZE(hist), hist, 1);
 		printf("\n");
 	}
+	fflush(stdout);
 
 	return 0;
 }
