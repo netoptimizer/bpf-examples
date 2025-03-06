@@ -3,7 +3,8 @@
 #define NETSTACKLAT_H
 
 // Histograms support values up to 2^30 ns-> 1s
-#define HIST_MAX_LATENCY_SLOT 30
+// 2^37 =~ 137sec max
+#define HIST_MAX_LATENCY_SLOT 37
 /*
  * MAX_LATENCY_SLOT + 1 bin for hist, +1 "bin" for the "sum key"
  * (https://github.com/cloudflare/ebpf_exporter?tab=readme-ov-file#sum-keys)
@@ -50,4 +51,3 @@ struct netstacklat_bpf_config
 };
 
 #endif
-
